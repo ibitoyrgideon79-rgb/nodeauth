@@ -1,7 +1,6 @@
-import { ResultSetHeader, RowDataPacket } from 'mysql2';
 import { pool } from '../config/db';
 
-interface RefreshTokenRow extends RowDataPacket {
+interface RefreshTokenRow {
   id: number;
   userId: number;
   tokenHash: string;
@@ -17,25 +16,25 @@ export const createRefreshToken = async (params: {
 }): Promise<void> => {
   const sql = `
     INSERT INTO refresh_tokens (user_id, token_hash, expires_at, created_by_ip)
-    VALUES (?, ?, ?, ?)
+    VALUES ($1, $2, $3, $4)
   `;
-  await pool.execute(sql, [params.userId, params.tokenHash, params.expiresAt, params.createdByIp || null]);
+  await pool.query(sql, [params.userId, params.tokenHash, params.expiresAt, params.createdByIp || null]);
 };
 
 export const findRefreshTokenByHash = async (tokenHash: string): Promise<RefreshTokenRow | null> => {
   const sql = `
     SELECT
       id,
-      user_id AS userId,
-      token_hash AS tokenHash,
-      expires_at AS expiresAt,
-      revoked_at AS revokedAt
+      user_id AS "userId",
+      token_hash AS "tokenHash",
+      expires_at AS "expiresAt",
+      revoked_at AS "revokedAt"
     FROM refresh_tokens
-    WHERE token_hash = ?
+    WHERE token_hash = $1
     LIMIT 1
   `;
-  const [rows] = await pool.execute<RefreshTokenRow[]>(sql, [tokenHash]);
-  return rows[0] || null;
+  const result = await pool.query<RefreshTokenRow>(sql, [tokenHash]);
+  return result.rows[0] || null;
 };
 
 export const revokeRefreshTokenByHash = async (params: {
@@ -46,13 +45,13 @@ export const revokeRefreshTokenByHash = async (params: {
   const sql = `
     UPDATE refresh_tokens
     SET
-      revoked_at = UTC_TIMESTAMP(),
-      revoked_by_ip = ?,
-      replaced_by_token_hash = COALESCE(?, replaced_by_token_hash)
-    WHERE token_hash = ?
+      revoked_at = NOW(),
+      revoked_by_ip = $1,
+      replaced_by_token_hash = COALESCE($2, replaced_by_token_hash)
+    WHERE token_hash = $3
       AND revoked_at IS NULL
   `;
-  await pool.execute(sql, [params.revokedByIp || null, params.replacedByTokenHash || null, params.tokenHash]);
+  await pool.query(sql, [params.revokedByIp || null, params.replacedByTokenHash || null, params.tokenHash]);
 };
 
 export const revokeAllActiveRefreshTokensForUser = async (
@@ -61,11 +60,10 @@ export const revokeAllActiveRefreshTokensForUser = async (
 ): Promise<void> => {
   const sql = `
     UPDATE refresh_tokens
-    SET revoked_at = UTC_TIMESTAMP(), revoked_by_ip = ?
-    WHERE user_id = ?
+    SET revoked_at = NOW(), revoked_by_ip = $1
+    WHERE user_id = $2
       AND revoked_at IS NULL
-      AND expires_at > UTC_TIMESTAMP()
+      AND expires_at > NOW()
   `;
-  await pool.execute<ResultSetHeader>(sql, [revokedByIp || null, userId]);
+  await pool.query(sql, [revokedByIp || null, userId]);
 };
-

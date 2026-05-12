@@ -1,7 +1,7 @@
 {
-  "name": "node-auth-mysql-ts",
+  "name": "node-auth-supabase-postgres-ts",
   "version": "1.0.0",
-  "description": "Secure Node.js + Express + MySQL JWT authentication API in TypeScript",
+  "description": "Secure Node.js + Express + Supabase Postgres JWT authentication API in TypeScript",
   "main": "dist/server.js",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
@@ -12,7 +12,8 @@
     "nodejs",
     "express",
     "typescript",
-    "mysql",
+    "postgres",
+    "supabase",
     "jwt",
     "authentication"
   ],
@@ -26,7 +27,7 @@
     "express-rate-limit": "^7.4.1",
     "helmet": "^8.0.0",
     "jsonwebtoken": "^9.0.2",
-    "mysql2": "^3.11.0"
+    "pg": "^8.16.0"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
@@ -34,6 +35,7 @@
     "@types/express": "^4.17.21",
     "@types/jsonwebtoken": "^9.0.7",
     "@types/node": "^22.7.4",
+    "@types/pg": "^8.15.2",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.6.2"
   }

@@ -1,77 +1,50 @@
-PRO-GRADE NODE.JS AUTH (TYPESCRIPT + MYSQL + JWT) - COMPLETE BUILD GUIDE
-=========================================================================
+PRO-GRADE AUTH SYSTEM GUIDE
+TypeScript + Express + Supabase Postgres + JWT
+================================================
 
-This guide is intentionally deep and uniform from start to finish.
-Follow in order, copy and paste exactly, and you will get a production-style auth foundation.
+Audience:
+- Junior to intermediate backend developers.
 
----------------------------------------------------------------------------
-0) What You Are Building
----------------------------------------------------------------------------
+Goal:
+- Build a secure, scalable authentication backend.
+- Understand not only "what code to paste", but "why each part exists".
 
-You will build a secure auth API with:
+----------------------------------------------------------------------
+1) WHAT WE ARE BUILDING
+----------------------------------------------------------------------
 
-1. TypeScript + Express backend.
-2. MySQL persistence.
-3. Password hashing with bcrypt.
-4. Access token + refresh token flow.
-5. Refresh-token rotation and server-side revocation.
-6. Route protection with JWT verification.
-7. Security middleware (Helmet, CORS, rate limiting).
-8. Centralized error handling.
-9. Auto table creation on startup.
+Features:
+1. User signup (email + password)
+2. User signin
+3. Protected route (dashboard)
+4. Access token auth (short lifetime)
+5. Refresh token rotation (stateful security)
+6. Logout by refresh-token revocation
 
-Core endpoints:
+Security controls:
+1. Password hashing (`bcrypt`)
+2. JWT verification constraints (issuer, audience, algorithm)
+3. Hashed refresh tokens in DB (never store raw refresh tokens)
+4. Rate limiting
+5. Helmet security headers
+6. Input validation
+7. Centralized error handling
 
-1. POST /api/auth/signup
-2. POST /api/auth/signin
-3. POST /api/auth/refresh
-4. POST /api/auth/logout
-5. GET /api/auth/dashboard
-6. GET /health
-
----------------------------------------------------------------------------
-1) Prerequisites
----------------------------------------------------------------------------
-
-Install these on your machine:
-
-1. Node.js LTS (v20+ recommended).
-2. MySQL Server (v8+ recommended).
-3. A REST client (Postman or Insomnia), or curl.
-
-You also need to create a MySQL database:
-
-SQL:
-
-CREATE DATABASE auth_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-
----------------------------------------------------------------------------
-2) Create Project Folder
----------------------------------------------------------------------------
-
-Commands:
-
-mkdir nodeauth
-cd nodeauth
-
----------------------------------------------------------------------------
-3) Create Final Folder Structure
----------------------------------------------------------------------------
-
-Create this exact structure:
+----------------------------------------------------------------------
+2) PROJECT STRUCTURE
+----------------------------------------------------------------------
 
 nodeauth/
   .env
   .env.example
-  .gitignore
   package.json
   tsconfig.json
   src/
-    app.ts
     server.ts
+    app.ts
     config/
-      db.ts
       env.ts
+      db.ts
     controllers/
       auth.controller.ts
     middlewares/
@@ -79,8 +52,8 @@ nodeauth/
       error.middleware.ts
       rate-limit.middleware.ts
     models/
-      refresh-token.model.ts
       user.model.ts
+      refresh-token.model.ts
     routes/
       auth.routes.ts
     types/
@@ -93,16 +66,62 @@ nodeauth/
     validators/
       auth.validator.ts
 
----------------------------------------------------------------------------
-4) Add package.json
----------------------------------------------------------------------------
+Layer design:
+- `routes` -> URL mapping only
+- `controllers` -> request/response workflow
+- `models` -> SQL + persistence
+- `middlewares` -> cross-cutting concerns (auth, limits, errors)
+- `config` -> environment + DB bootstrap
+- `utils` -> reusable logic
 
-File: package.json
+----------------------------------------------------------------------
+3) ENVIRONMENT VARIABLES (AND WHY EACH EXISTS)
+----------------------------------------------------------------------
+
+File: `.env.example`
+
+PORT=3000
+NODE_ENV=development
+SUPABASE_DB_URL=postgresql://postgres.your-project-ref:your-password@aws-0-your-region.pooler.supabase.com:5432/postgres
+SUPABASE_DB_SSL=true
+DB_POOL_MAX=10
+DB_IDLE_TIMEOUT_MS=10000
+DB_CONNECT_TIMEOUT_MS=10000
+JWT_ACCESS_SECRET=replace_with_a_long_random_access_secret
+JWT_ACCESS_EXPIRES_IN=15m
+JWT_ISSUER=nodeauth-api
+JWT_AUDIENCE=nodeauth-client
+REFRESH_TOKEN_TTL_DAYS=7
+BCRYPT_ROUNDS=12
+TRUST_PROXY=false
+CORS_ORIGIN=http://localhost:3000
+
+Explanation:
+1. `SUPABASE_DB_URL`:
+   Supabase Postgres connection string. This is the DB entrypoint.
+2. `SUPABASE_DB_SSL`:
+   SSL on/off. Should be `true` in production.
+3. Pool settings (`DB_POOL_MAX`, timeouts):
+   control DB connection pressure and reliability.
+4. JWT settings:
+   short-lived access tokens + strict issuer/audience checks.
+5. `REFRESH_TOKEN_TTL_DAYS`:
+   controls refresh token lifetime.
+6. `BCRYPT_ROUNDS`:
+   password hashing cost factor.
+7. `CORS_ORIGIN`:
+   controls frontend origin that may call this API.
+
+----------------------------------------------------------------------
+4) PACKAGE FILES
+----------------------------------------------------------------------
+
+File: `package.json`
 
 {
-  "name": "node-auth-mysql-ts",
+  "name": "node-auth-supabase-postgres-ts",
   "version": "1.0.0",
-  "description": "Secure Node.js + Express + MySQL JWT authentication API in TypeScript",
+  "description": "Secure Node.js + Express + Supabase Postgres JWT authentication API in TypeScript",
   "main": "dist/server.js",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
@@ -113,7 +132,8 @@ File: package.json
     "nodejs",
     "express",
     "typescript",
-    "mysql",
+    "postgres",
+    "supabase",
     "jwt",
     "authentication"
   ],
@@ -127,7 +147,7 @@ File: package.json
     "express-rate-limit": "^7.4.1",
     "helmet": "^8.0.0",
     "jsonwebtoken": "^9.0.2",
-    "mysql2": "^3.11.0"
+    "pg": "^8.16.0"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
@@ -135,16 +155,19 @@ File: package.json
     "@types/express": "^4.17.21",
     "@types/jsonwebtoken": "^9.0.7",
     "@types/node": "^22.7.4",
+    "@types/pg": "^8.15.2",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.6.2"
   }
 }
 
----------------------------------------------------------------------------
-5) Add TypeScript Compiler Config
----------------------------------------------------------------------------
+Why these libs:
+1. `pg` for Postgres connection pooling and parameterized SQL.
+2. `helmet` + `express-rate-limit` harden public endpoints.
+3. `jsonwebtoken` for stateless access token verification.
+4. `bcryptjs` for password hashing.
 
-File: tsconfig.json
+File: `tsconfig.json`
 
 {
   "compilerOptions": {
@@ -163,150 +186,21 @@ File: tsconfig.json
   "exclude": ["node_modules", "dist"]
 }
 
----------------------------------------------------------------------------
-6) Add Environment Files
----------------------------------------------------------------------------
-
-File: .env.example
-
-PORT=3000
-NODE_ENV=development
-MYSQL_HOST=localhost
-MYSQL_PORT=3306
-MYSQL_USER=root
-MYSQL_PASSWORD=change_me
-MYSQL_DATABASE=auth_db
-JWT_ACCESS_SECRET=replace_with_a_long_random_access_secret
-JWT_ACCESS_EXPIRES_IN=15m
-JWT_ISSUER=nodeauth-api
-JWT_AUDIENCE=nodeauth-client
-REFRESH_TOKEN_TTL_DAYS=7
-BCRYPT_ROUNDS=12
-TRUST_PROXY=false
-CORS_ORIGIN=http://localhost:3000
-
-File: .env
-
-PORT=3000
-NODE_ENV=development
-MYSQL_HOST=localhost
-MYSQL_PORT=3306
-MYSQL_USER=root
-MYSQL_PASSWORD=change_me
-MYSQL_DATABASE=auth_db
-JWT_ACCESS_SECRET=replace_with_a_long_random_access_secret
-JWT_ACCESS_EXPIRES_IN=15m
-JWT_ISSUER=nodeauth-api
-JWT_AUDIENCE=nodeauth-client
-REFRESH_TOKEN_TTL_DAYS=7
-BCRYPT_ROUNDS=12
-TRUST_PROXY=false
-CORS_ORIGIN=http://localhost:3000
-
 Important:
-1. Use long random secrets in production.
-2. Never commit real .env into Git.
+- `strict: true` catches dangerous typing mistakes early.
 
----------------------------------------------------------------------------
-7) Add .gitignore
----------------------------------------------------------------------------
+----------------------------------------------------------------------
+5) CONFIGURATION LAYER
+----------------------------------------------------------------------
 
-File: .gitignore
-
-node_modules
-dist
-.env
-
----------------------------------------------------------------------------
-8) Core App Bootstrap
----------------------------------------------------------------------------
-
-File: src/server.ts
-
-import app from './app';
-import { pool } from './config/db';
-import env from './config/env';
-import { initDatabase } from './config/db';
-
-const startServer = async (): Promise<void> => {
-  try {
-    await initDatabase();
-    const server = app.listen(env.port, () => {
-      console.log(`Server running on port ${env.port} (${env.nodeEnv})`);
-    });
-
-    const shutdown = async (): Promise<void> => {
-      server.close(async () => {
-        await pool.end();
-        process.exit(0);
-      });
-    };
-
-    process.on('SIGTERM', () => {
-      void shutdown();
-    });
-
-    process.on('SIGINT', () => {
-      void shutdown();
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown startup error';
-    console.error('Startup failed:', message);
-    process.exit(1);
-  }
-};
-
-void startServer();
-
-File: src/app.ts
-
-import cors from 'cors';
-import express from 'express';
-import helmet from 'helmet';
-import env from './config/env';
-import { globalApiLimiter } from './middlewares/rate-limit.middleware';
-import authRoutes from './routes/auth.routes';
-import { errorHandler, notFoundHandler } from './middlewares/error.middleware';
-
-const app = express();
-
-app.disable('x-powered-by');
-app.set('trust proxy', env.trustProxy);
-app.use(helmet());
-app.use(
-  cors({
-    origin: env.corsOrigin || true,
-    credentials: true
-  })
-);
-app.use(express.json({ limit: '20kb' }));
-app.use(globalApiLimiter);
-
-app.get('/health', (_req, res) => {
-  res.status(200).json({ status: 'ok' });
-});
-
-app.use('/api/auth', authRoutes);
-
-app.use(notFoundHandler);
-app.use(errorHandler);
-
-export default app;
-
----------------------------------------------------------------------------
-9) Configuration Layer
----------------------------------------------------------------------------
-
-File: src/config/env.ts
+File: `src/config/env.ts`
 
 import dotenv from 'dotenv';
 
 dotenv.config();
 
 const requiredVars = [
-  'MYSQL_HOST',
-  'MYSQL_USER',
-  'MYSQL_DATABASE',
+  'SUPABASE_DB_URL',
   'JWT_ACCESS_SECRET',
   'JWT_ISSUER',
   'JWT_AUDIENCE'
@@ -323,15 +217,12 @@ const env = {
   nodeEnv: process.env.NODE_ENV || 'development',
   trustProxy: process.env.TRUST_PROXY === 'true',
   corsOrigin: process.env.CORS_ORIGIN || '',
-  mysql: {
-    host: process.env.MYSQL_HOST as string,
-    port: Number(process.env.MYSQL_PORT || 3306),
-    user: process.env.MYSQL_USER as string,
-    password: process.env.MYSQL_PASSWORD || '',
-    database: process.env.MYSQL_DATABASE as string,
-    waitForConnections: true,
-    connectionLimit: 10,
-    queueLimit: 0
+  postgres: {
+    connectionString: process.env.SUPABASE_DB_URL as string,
+    ssl: process.env.SUPABASE_DB_SSL === 'false' ? false : { rejectUnauthorized: false },
+    max: Number(process.env.DB_POOL_MAX || 10),
+    idleTimeoutMillis: Number(process.env.DB_IDLE_TIMEOUT_MS || 10000),
+    connectionTimeoutMillis: Number(process.env.DB_CONNECT_TIMEOUT_MS || 10000)
   },
   security: {
     bcryptRounds: Number(process.env.BCRYPT_ROUNDS || 12)
@@ -353,194 +244,78 @@ if (!Number.isInteger(env.jwt.refreshTtlDays) || env.jwt.refreshTtlDays < 1) {
   throw new Error('REFRESH_TOKEN_TTL_DAYS must be an integer >= 1.');
 }
 
+if (!Number.isInteger(env.postgres.max) || env.postgres.max < 1) {
+  throw new Error('DB_POOL_MAX must be an integer >= 1.');
+}
+
 export default env;
 
-File: src/config/db.ts
+Why this matters:
+1. Fail-fast startup on bad config.
+2. Prevent weak bcrypt configuration.
+3. Prevent invalid pool sizes before runtime traffic.
 
-import mysql, { Pool } from 'mysql2/promise';
+File: `src/config/db.ts`
+
+import { Pool, types } from 'pg';
 import env from './env';
 
-export const pool: Pool = mysql.createPool(env.mysql);
+types.setTypeParser(20, (value) => parseInt(value, 10));
+
+export const pool = new Pool(env.postgres);
 
 export const initDatabase = async (): Promise<void> => {
   const createUsersTableSql = `
     CREATE TABLE IF NOT EXISTS users (
-      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-      email VARCHAR(255) NOT NULL,
-      password_hash VARCHAR(255) NOT NULL,
-      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      PRIMARY KEY (id),
-      UNIQUE KEY uq_users_email (email)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+      id BIGSERIAL PRIMARY KEY,
+      email TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
   `;
 
   const createRefreshTokensTableSql = `
     CREATE TABLE IF NOT EXISTS refresh_tokens (
-      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-      user_id BIGINT UNSIGNED NOT NULL,
+      id BIGSERIAL PRIMARY KEY,
+      user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       token_hash CHAR(64) NOT NULL,
-      expires_at DATETIME NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL,
       created_by_ip VARCHAR(45) DEFAULT NULL,
-      revoked_at DATETIME DEFAULT NULL,
+      revoked_at TIMESTAMPTZ DEFAULT NULL,
       revoked_by_ip VARCHAR(45) DEFAULT NULL,
       replaced_by_token_hash CHAR(64) DEFAULT NULL,
-      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (id),
-      UNIQUE KEY uq_refresh_tokens_token_hash (token_hash),
-      KEY idx_refresh_tokens_user_id (user_id),
-      KEY idx_refresh_tokens_expires_at (expires_at),
-      CONSTRAINT fk_refresh_tokens_user
-        FOREIGN KEY (user_id) REFERENCES users(id)
-        ON DELETE CASCADE
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CONSTRAINT uq_refresh_tokens_token_hash UNIQUE (token_hash)
+    );
+  `;
+
+  const createIndexesSql = `
+    CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user_id ON refresh_tokens(user_id);
+    CREATE INDEX IF NOT EXISTS idx_refresh_tokens_expires_at ON refresh_tokens(expires_at);
   `;
 
   await pool.query(createUsersTableSql);
   await pool.query(createRefreshTokensTableSql);
+  await pool.query(createIndexesSql);
 };
 
----------------------------------------------------------------------------
-10) Data Access Layer (Models)
----------------------------------------------------------------------------
+Why each piece:
+1. `Pool`:
+   reuses DB connections (better latency and stability).
+2. `setTypeParser(20)`:
+   Postgres `BIGINT` arrives as string by default in Node.
+   We parse to number for easier app handling.
+3. `token_hash` unique:
+   guarantees one canonical refresh token hash record.
+4. Indexes:
+   speed up refresh-token lookups and bulk user revocations.
 
-File: src/models/user.model.ts
+----------------------------------------------------------------------
+6) UTILITY LAYER
+----------------------------------------------------------------------
 
-import { RowDataPacket, ResultSetHeader } from 'mysql2';
-import { pool } from '../config/db';
-
-export interface PublicUser {
-  id: number;
-  email: string;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-interface UserRow extends RowDataPacket {
-  id: number;
-  email: string;
-  passwordHash: string;
-  createdAt: Date;
-}
-
-interface PublicUserRow extends RowDataPacket {
-  id: number;
-  email: string;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-export const createUser = async ({
-  email,
-  passwordHash
-}: {
-  email: string;
-  passwordHash: string;
-}): Promise<{ id: number; email: string }> => {
-  const sql = 'INSERT INTO users (email, password_hash) VALUES (?, ?)';
-  const [result] = await pool.execute<ResultSetHeader>(sql, [email, passwordHash]);
-  return { id: result.insertId, email };
-};
-
-export const findUserByEmail = async (email: string): Promise<UserRow | null> => {
-  const sql =
-    'SELECT id, email, password_hash AS passwordHash, created_at AS createdAt FROM users WHERE email = ? LIMIT 1';
-  const [rows] = await pool.execute<UserRow[]>(sql, [email]);
-  return rows[0] || null;
-};
-
-export const findPublicUserById = async (id: string | number): Promise<PublicUser | null> => {
-  const sql =
-    'SELECT id, email, created_at AS createdAt, updated_at AS updatedAt FROM users WHERE id = ? LIMIT 1';
-  const [rows] = await pool.execute<PublicUserRow[]>(sql, [id]);
-
-  if (!rows[0]) return null;
-  return {
-    id: rows[0].id,
-    email: rows[0].email,
-    createdAt: rows[0].createdAt,
-    updatedAt: rows[0].updatedAt
-  };
-};
-
-File: src/models/refresh-token.model.ts
-
-import { ResultSetHeader, RowDataPacket } from 'mysql2';
-import { pool } from '../config/db';
-
-interface RefreshTokenRow extends RowDataPacket {
-  id: number;
-  userId: number;
-  tokenHash: string;
-  expiresAt: Date;
-  revokedAt: Date | null;
-}
-
-export const createRefreshToken = async (params: {
-  userId: number;
-  tokenHash: string;
-  expiresAt: Date;
-  createdByIp?: string | null;
-}): Promise<void> => {
-  const sql = `
-    INSERT INTO refresh_tokens (user_id, token_hash, expires_at, created_by_ip)
-    VALUES (?, ?, ?, ?)
-  `;
-  await pool.execute(sql, [params.userId, params.tokenHash, params.expiresAt, params.createdByIp || null]);
-};
-
-export const findRefreshTokenByHash = async (tokenHash: string): Promise<RefreshTokenRow | null> => {
-  const sql = `
-    SELECT
-      id,
-      user_id AS userId,
-      token_hash AS tokenHash,
-      expires_at AS expiresAt,
-      revoked_at AS revokedAt
-    FROM refresh_tokens
-    WHERE token_hash = ?
-    LIMIT 1
-  `;
-  const [rows] = await pool.execute<RefreshTokenRow[]>(sql, [tokenHash]);
-  return rows[0] || null;
-};
-
-export const revokeRefreshTokenByHash = async (params: {
-  tokenHash: string;
-  revokedByIp?: string | null;
-  replacedByTokenHash?: string | null;
-}): Promise<void> => {
-  const sql = `
-    UPDATE refresh_tokens
-    SET
-      revoked_at = UTC_TIMESTAMP(),
-      revoked_by_ip = ?,
-      replaced_by_token_hash = COALESCE(?, replaced_by_token_hash)
-    WHERE token_hash = ?
-      AND revoked_at IS NULL
-  `;
-  await pool.execute(sql, [params.revokedByIp || null, params.replacedByTokenHash || null, params.tokenHash]);
-};
-
-export const revokeAllActiveRefreshTokensForUser = async (
-  userId: number,
-  revokedByIp?: string | null
-): Promise<void> => {
-  const sql = `
-    UPDATE refresh_tokens
-    SET revoked_at = UTC_TIMESTAMP(), revoked_by_ip = ?
-    WHERE user_id = ?
-      AND revoked_at IS NULL
-      AND expires_at > UTC_TIMESTAMP()
-  `;
-  await pool.execute<ResultSetHeader>(sql, [revokedByIp || null, userId]);
-};
-
----------------------------------------------------------------------------
-11) Utility Layer
----------------------------------------------------------------------------
-
-File: src/utils/http-error.ts
+File: `src/utils/http-error.ts`
 
 export default class HttpError extends Error {
   statusCode: number;
@@ -552,7 +327,10 @@ export default class HttpError extends Error {
   }
 }
 
-File: src/utils/async-handler.ts
+Purpose:
+- Standardized error object with HTTP status.
+
+File: `src/utils/async-handler.ts`
 
 import { NextFunction, Request, Response } from 'express';
 
@@ -564,7 +342,10 @@ const asyncHandler = (fn: AsyncRequestHandler) => (req: Request, res: Response, 
 
 export default asyncHandler;
 
-File: src/utils/jwt.ts
+Purpose:
+- Avoid repeating try/catch in every async route.
+
+File: `src/utils/jwt.ts`
 
 import { createHash, randomBytes } from 'crypto';
 import jwt, { JwtPayload, SignOptions } from 'jsonwebtoken';
@@ -613,11 +394,16 @@ export const getRefreshTokenExpiry = (): Date => {
   return expiresAt;
 };
 
----------------------------------------------------------------------------
-12) Validation Layer
----------------------------------------------------------------------------
+Security decisions:
+1. Refresh token is opaque random bytes (not JWT).
+2. Only hashed refresh token is stored in DB.
+3. JWT verification is strict (algorithm + issuer + audience).
 
-File: src/validators/auth.validator.ts
+----------------------------------------------------------------------
+7) VALIDATION LAYER
+----------------------------------------------------------------------
+
+File: `src/validators/auth.validator.ts`
 
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -687,11 +473,152 @@ export const validateRefreshTokenInput = (payload: { refreshToken?: unknown }) =
 
 export { normalizeEmail };
 
----------------------------------------------------------------------------
-13) Middleware Layer
----------------------------------------------------------------------------
+Why this layer:
+- Keep controllers clean.
+- Normalize and reject bad inputs consistently.
 
-File: src/middlewares/auth.middleware.ts
+----------------------------------------------------------------------
+8) MODEL LAYER (SQL OPERATIONS)
+----------------------------------------------------------------------
+
+File: `src/models/user.model.ts`
+
+import { pool } from '../config/db';
+
+export interface PublicUser {
+  id: number;
+  email: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+interface UserRow {
+  id: number;
+  email: string;
+  passwordHash: string;
+  createdAt: Date;
+}
+
+interface PublicUserRow {
+  id: number;
+  email: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export const createUser = async ({
+  email,
+  passwordHash
+}: {
+  email: string;
+  passwordHash: string;
+}): Promise<{ id: number; email: string }> => {
+  const sql = 'INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id, email';
+  const result = await pool.query<{ id: number; email: string }>(sql, [email, passwordHash]);
+  return result.rows[0];
+};
+
+export const findUserByEmail = async (email: string): Promise<UserRow | null> => {
+  const sql =
+    'SELECT id, email, password_hash AS "passwordHash", created_at AS "createdAt" FROM users WHERE email = $1 LIMIT 1';
+  const result = await pool.query<UserRow>(sql, [email]);
+  return result.rows[0] || null;
+};
+
+export const findPublicUserById = async (id: string | number): Promise<PublicUser | null> => {
+  const sql =
+    'SELECT id, email, created_at AS "createdAt", updated_at AS "updatedAt" FROM users WHERE id = $1 LIMIT 1';
+  const result = await pool.query<PublicUserRow>(sql, [id]);
+
+  if (!result.rows[0]) return null;
+  return {
+    id: result.rows[0].id,
+    email: result.rows[0].email,
+    createdAt: result.rows[0].createdAt,
+    updatedAt: result.rows[0].updatedAt
+  };
+};
+
+File: `src/models/refresh-token.model.ts`
+
+import { pool } from '../config/db';
+
+interface RefreshTokenRow {
+  id: number;
+  userId: number;
+  tokenHash: string;
+  expiresAt: Date;
+  revokedAt: Date | null;
+}
+
+export const createRefreshToken = async (params: {
+  userId: number;
+  tokenHash: string;
+  expiresAt: Date;
+  createdByIp?: string | null;
+}): Promise<void> => {
+  const sql = `
+    INSERT INTO refresh_tokens (user_id, token_hash, expires_at, created_by_ip)
+    VALUES ($1, $2, $3, $4)
+  `;
+  await pool.query(sql, [params.userId, params.tokenHash, params.expiresAt, params.createdByIp || null]);
+};
+
+export const findRefreshTokenByHash = async (tokenHash: string): Promise<RefreshTokenRow | null> => {
+  const sql = `
+    SELECT
+      id,
+      user_id AS "userId",
+      token_hash AS "tokenHash",
+      expires_at AS "expiresAt",
+      revoked_at AS "revokedAt"
+    FROM refresh_tokens
+    WHERE token_hash = $1
+    LIMIT 1
+  `;
+  const result = await pool.query<RefreshTokenRow>(sql, [tokenHash]);
+  return result.rows[0] || null;
+};
+
+export const revokeRefreshTokenByHash = async (params: {
+  tokenHash: string;
+  revokedByIp?: string | null;
+  replacedByTokenHash?: string | null;
+}): Promise<void> => {
+  const sql = `
+    UPDATE refresh_tokens
+    SET
+      revoked_at = NOW(),
+      revoked_by_ip = $1,
+      replaced_by_token_hash = COALESCE($2, replaced_by_token_hash)
+    WHERE token_hash = $3
+      AND revoked_at IS NULL
+  `;
+  await pool.query(sql, [params.revokedByIp || null, params.replacedByTokenHash || null, params.tokenHash]);
+};
+
+export const revokeAllActiveRefreshTokensForUser = async (
+  userId: number,
+  revokedByIp?: string | null
+): Promise<void> => {
+  const sql = `
+    UPDATE refresh_tokens
+    SET revoked_at = NOW(), revoked_by_ip = $1
+    WHERE user_id = $2
+      AND revoked_at IS NULL
+      AND expires_at > NOW()
+  `;
+  await pool.query(sql, [revokedByIp || null, userId]);
+};
+
+Why parameterized SQL matters:
+- `$1`, `$2`, etc protect against SQL injection.
+
+----------------------------------------------------------------------
+9) MIDDLEWARE LAYER
+----------------------------------------------------------------------
+
+File: `src/middlewares/auth.middleware.ts`
 
 import { NextFunction, Request, Response } from 'express';
 import HttpError from '../utils/http-error';
@@ -715,7 +642,7 @@ export const requireAuth = (req: Request, _res: Response, next: NextFunction): v
   }
 };
 
-File: src/middlewares/error.middleware.ts
+File: `src/middlewares/error.middleware.ts`
 
 import { NextFunction, Request, Response } from 'express';
 
@@ -735,7 +662,7 @@ export const errorHandler = (
   res.status(statusCode).json({ error: message });
 };
 
-File: src/middlewares/rate-limit.middleware.ts
+File: `src/middlewares/rate-limit.middleware.ts`
 
 import { rateLimit } from 'express-rate-limit';
 
@@ -756,11 +683,28 @@ export const authLimiter = rateLimit({
   }
 });
 
----------------------------------------------------------------------------
-14) Controller Layer
----------------------------------------------------------------------------
+----------------------------------------------------------------------
+10) TYPES AUGMENTATION
+----------------------------------------------------------------------
 
-File: src/controllers/auth.controller.ts
+File: `src/types/express/index.d.ts`
+
+declare namespace Express {
+  interface Request {
+    auth?: {
+      userId: string;
+    };
+  }
+}
+
+Why:
+- We add `req.auth` in middleware, so TypeScript must know it exists.
+
+----------------------------------------------------------------------
+11) CONTROLLER LAYER
+----------------------------------------------------------------------
+
+File: `src/controllers/auth.controller.ts`
 
 import bcrypt from 'bcryptjs';
 import { Request, Response } from 'express';
@@ -928,11 +872,19 @@ export const dashboard = async (req: Request, res: Response): Promise<void> => {
   });
 };
 
----------------------------------------------------------------------------
-15) Routes + Type Augmentation
----------------------------------------------------------------------------
+Key workflow logic:
+1. Signup/signin:
+   issue access token + refresh token.
+2. Refresh:
+   rotate refresh token and revoke old one.
+3. Logout:
+   revoke refresh token.
 
-File: src/routes/auth.routes.ts
+----------------------------------------------------------------------
+12) ROUTES + APP BOOTSTRAP
+----------------------------------------------------------------------
+
+File: `src/routes/auth.routes.ts`
 
 import { Router } from 'express';
 import { dashboard, logout, refresh, signin, signup } from '../controllers/auth.controller';
@@ -950,172 +902,156 @@ router.get('/dashboard', requireAuth, asyncHandler(dashboard));
 
 export default router;
 
-File: src/types/express/index.d.ts
+File: `src/app.ts`
 
-declare namespace Express {
-  interface Request {
-    auth?: {
-      userId: string;
+import cors from 'cors';
+import express from 'express';
+import helmet from 'helmet';
+import env from './config/env';
+import { globalApiLimiter } from './middlewares/rate-limit.middleware';
+import authRoutes from './routes/auth.routes';
+import { errorHandler, notFoundHandler } from './middlewares/error.middleware';
+
+const app = express();
+
+app.disable('x-powered-by');
+app.set('trust proxy', env.trustProxy);
+app.use(helmet());
+app.use(
+  cors({
+    origin: env.corsOrigin || true,
+    credentials: true
+  })
+);
+app.use(express.json({ limit: '20kb' }));
+app.use(globalApiLimiter);
+
+app.get('/health', (_req, res) => {
+  res.status(200).json({ status: 'ok' });
+});
+
+app.use('/api/auth', authRoutes);
+
+app.use(notFoundHandler);
+app.use(errorHandler);
+
+export default app;
+
+File: `src/server.ts`
+
+import app from './app';
+import { pool } from './config/db';
+import env from './config/env';
+import { initDatabase } from './config/db';
+
+const startServer = async (): Promise<void> => {
+  try {
+    await initDatabase();
+    const server = app.listen(env.port, () => {
+      console.log(`Server running on port ${env.port} (${env.nodeEnv})`);
+    });
+
+    const shutdown = async (): Promise<void> => {
+      server.close(async () => {
+        await pool.end();
+        process.exit(0);
+      });
     };
+
+    process.on('SIGTERM', () => {
+      void shutdown();
+    });
+
+    process.on('SIGINT', () => {
+      void shutdown();
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown startup error';
+    console.error('Startup failed:', message);
+    process.exit(1);
   }
-}
+};
 
----------------------------------------------------------------------------
-16) Install and Run (When You Are Ready)
----------------------------------------------------------------------------
+void startServer();
 
-Commands:
+Why graceful shutdown matters:
+- Prevent abrupt process kill with active DB sockets.
 
-npm install
-npm run dev
+----------------------------------------------------------------------
+13) RUN AND TEST (WHEN YOU ARE READY)
+----------------------------------------------------------------------
 
-Production build:
+Install:
+1. npm install
 
-npm run build
-npm start
+Run dev:
+1. npm run dev
 
----------------------------------------------------------------------------
-17) End-to-End API Test Flow
----------------------------------------------------------------------------
+Build:
+1. npm run build
+2. npm start
 
-Use these exact requests.
+----------------------------------------------------------------------
+14) API TEST EXAMPLES
+----------------------------------------------------------------------
 
-1) Signup
-POST http://localhost:3000/api/auth/signup
+Signup:
+POST /api/auth/signup
 Body:
 {
-  "email": "test@example.com",
-  "password": "MyStrongPassword123!"
+  "email": "dev@example.com",
+  "password": "VeryStrongPassword123!"
 }
 
-Expected:
-1. accessToken
-2. refreshToken
-3. user object
-
-2) Signin
-POST http://localhost:3000/api/auth/signin
+Signin:
+POST /api/auth/signin
 Body:
 {
-  "email": "test@example.com",
-  "password": "MyStrongPassword123!"
+  "email": "dev@example.com",
+  "password": "VeryStrongPassword123!"
 }
 
-Expected:
-1. New accessToken
-2. New refreshToken
-
-3) Protected route
-GET http://localhost:3000/api/auth/dashboard
+Dashboard (protected):
+GET /api/auth/dashboard
 Header:
 Authorization: Bearer <accessToken>
 
-4) Refresh token
-POST http://localhost:3000/api/auth/refresh
+Refresh:
+POST /api/auth/refresh
 Body:
 {
   "refreshToken": "<refreshToken>"
 }
 
-Expected:
-1. New accessToken
-2. New refreshToken (rotated)
-
-5) Logout
-POST http://localhost:3000/api/auth/logout
+Logout:
+POST /api/auth/logout
 Body:
 {
-  "refreshToken": "<latestRefreshToken>"
+  "refreshToken": "<refreshToken>"
 }
 
-Expected:
-1. Token revoked server-side
-2. Cannot refresh with that token anymore
+----------------------------------------------------------------------
+15) IMPORTANT SECURITY NOTES
+----------------------------------------------------------------------
 
----------------------------------------------------------------------------
-18) curl Examples (Paste-Ready)
----------------------------------------------------------------------------
+1. In production, use strong, random JWT secrets.
+2. Use HTTPS only.
+3. Keep refresh token in secure client storage strategy.
+4. Never log raw tokens in production logs.
+5. Add audit logs for login/refresh/logout events.
+6. Consider MFA for high-risk apps.
 
-Signup:
+----------------------------------------------------------------------
+16) SUPABASE CONNECTION NOTE
+----------------------------------------------------------------------
 
-curl -X POST http://localhost:3000/api/auth/signup \
-  -H "Content-Type: application/json" \
-  -d "{\"email\":\"test@example.com\",\"password\":\"MyStrongPassword123!\"}"
+For long-running backend servers:
+- Use Supabase session pooler connection string.
 
-Signin:
+For serverless:
+- Use transaction pooler and ensure library settings match pooler constraints.
 
-curl -X POST http://localhost:3000/api/auth/signin \
-  -H "Content-Type: application/json" \
-  -d "{\"email\":\"test@example.com\",\"password\":\"MyStrongPassword123!\"}"
+This project is currently configured as a long-running Express server.
 
-Refresh:
+END
 
-curl -X POST http://localhost:3000/api/auth/refresh \
-  -H "Content-Type: application/json" \
-  -d "{\"refreshToken\":\"<REFRESH_TOKEN_HERE>\"}"
-
-Dashboard:
-
-curl http://localhost:3000/api/auth/dashboard \
-  -H "Authorization: Bearer <ACCESS_TOKEN_HERE>"
-
-Logout:
-
-curl -X POST http://localhost:3000/api/auth/logout \
-  -H "Content-Type: application/json" \
-  -d "{\"refreshToken\":\"<REFRESH_TOKEN_HERE>\"}"
-
----------------------------------------------------------------------------
-19) Security Notes You Should Keep
----------------------------------------------------------------------------
-
-1. Hash passwords only (never encrypt plain passwords).
-2. Keep bcrypt rounds >= 10 (we use 12).
-3. Keep access token lifetime short (15m default).
-4. Rotate refresh tokens on every refresh request.
-5. Store only hash of refresh token in DB.
-6. Validate JWT algorithm, issuer, and audience.
-7. Keep generic signin error messages.
-8. Add HTTPS/TLS in production.
-9. Move secrets to a secure secret manager in production.
-10. Add audit logging and anomaly detection for enterprise systems.
-
----------------------------------------------------------------------------
-20) Common Troubleshooting
----------------------------------------------------------------------------
-
-Problem: "Missing environment variable"
-Fix:
-1. Check .env keys exactly match env.ts.
-2. Restart server after editing .env.
-
-Problem: "ECONNREFUSED" to MySQL
-Fix:
-1. MySQL is not running.
-2. Host/port/user/password in .env are wrong.
-
-Problem: 401 on dashboard
-Fix:
-1. Access token expired.
-2. Missing "Bearer " prefix.
-3. Token was signed with different secret/issuer/audience.
-
-Problem: Refresh returns 401
-Fix:
-1. Token already rotated/revoked.
-2. Token expired.
-3. You used an old refresh token instead of latest rotated token.
-
----------------------------------------------------------------------------
-21) Minimum Next Improvements (After This Foundation)
----------------------------------------------------------------------------
-
-1. Email verification flow.
-2. Password reset flow (token + expiry + one-time use).
-3. Account lockout strategy for repeated failed logins.
-4. Device/session management endpoint.
-5. Integration and E2E tests.
-6. Structured logging with request IDs.
-7. Redis-backed rate limit store for horizontal scale.
-
-END OF GUIDE
